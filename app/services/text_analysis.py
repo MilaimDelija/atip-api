@@ -3,7 +3,6 @@ import math
 from typing import List, Dict, Tuple
 from collections import Counter
 
-# LLM-typical filler phrases
 LLM_FILLERS = [
     r"\bit is worth noting\b", r"\bfurthermore\b", r"\bin conclusion\b",
     r"\bit is important to\b", r"\bof course\b", r"\bcertainly\b",
@@ -25,7 +24,6 @@ MANIPULATION_PATTERNS = [
 ]
 
 def calculate_entropy(text: str) -> float:
-    """Shannon entropy — low entropy = repetitive/bot-like"""
     if not text:
         return 0.0
     freq = Counter(text.lower())
@@ -33,7 +31,6 @@ def calculate_entropy(text: str) -> float:
     return -sum((c/total) * math.log2(c/total) for c in freq.values())
 
 def calculate_burstiness(sentences: List[str]) -> float:
-    """Burstiness — humans vary sentence length more than LLMs"""
     if len(sentences) < 3:
         return 0.0
     lengths = [len(s.split()) for s in sentences if s.strip()]
@@ -42,14 +39,9 @@ def calculate_burstiness(sentences: List[str]) -> float:
     mean = sum(lengths) / len(lengths)
     variance = sum((l - mean) ** 2 for l in lengths) / len(lengths)
     std = variance ** 0.5
-    # Low coefficient of variation = uniform = bot-like
-    cv = std / mean if mean > 0 else 0
-    return cv
+    return std / mean if mean > 0 else 0
 
 def detect_ai_generated(text: str) -> Tuple[bool, float, List[str]]:
-    """
-    Returns (is_ai_generated, probability, reasons)
-    """
     if not text or len(text) < 50:
         return False, 0.0, ["Text too short for reliable analysis"]
 
@@ -62,45 +54,39 @@ def detect_ai_generated(text: str) -> Tuple[bool, float, List[str]]:
     if not words:
         return False, 0.0, ["No words found"]
 
-    # 1. Filler phrases
     filler_hits = [p for p in LLM_FILLERS if re.search(p, text, re.IGNORECASE)]
     if len(filler_hits) >= 3:
         score += 0.30
-        reasons.append(f"Contains {len(filler_hits)} LLM-typical phrases (e.g. 'furthermore', 'certainly')")
+        reasons.append(f"Contains {len(filler_hits)} LLM-typical phrases")
     elif len(filler_hits) >= 1:
         score += 0.10
         reasons.append(f"Contains {len(filler_hits)} LLM-typical phrase(s)")
 
-    # 2. Lexical diversity
     unique_words = set(w.lower().strip('.,!?;:') for w in words)
     ttr = len(unique_words) / len(words)
     if ttr < 0.45 and len(words) > 30:
         score += 0.20
-        reasons.append(f"Low lexical diversity (TTR: {ttr:.2f}) — repetitive vocabulary")
+        reasons.append(f"Low lexical diversity (TTR: {ttr:.2f})")
     elif ttr < 0.55 and len(words) > 50:
         score += 0.10
         reasons.append(f"Below-average lexical diversity (TTR: {ttr:.2f})")
 
-    # 3. Burstiness (sentence length variation)
     burstiness = calculate_burstiness(sentences)
     if burstiness < 0.25 and len(sentences) > 4:
         score += 0.20
-        reasons.append(f"Uniform sentence lengths (burstiness: {burstiness:.2f}) — typical of LLMs")
+        reasons.append(f"Uniform sentence lengths (burstiness: {burstiness:.2f})")
 
-    # 4. Perfect structure — no contractions, no hesitations
-    contractions = len(re.findall(r"\b\w+n't\b|\b(I'm|I've|I'd|I'll|you're|we're|they're|can't|won't|don't)\b", text))
+    contractions = len(re.findall(r"\b\w+n't\b|\b(I'm|I've|I'd|you're|we're|they're|can't|won't|don't)\b", text))
     hesitations = len(re.findall(r'\b(um|uh|hmm|well,|you know|I mean|like,)\b', text, re.IGNORECASE))
     if contractions == 0 and hesitations == 0 and len(words) > 50:
         score += 0.15
-        reasons.append("No contractions or natural hesitations — overly formal register")
+        reasons.append("No contractions or hesitations — overly formal")
 
-    # 5. Entropy
     entropy = calculate_entropy(text)
     if entropy < 3.5:
         score += 0.15
-        reasons.append(f"Low character entropy ({entropy:.2f}) — repetitive patterns")
+        reasons.append(f"Low character entropy ({entropy:.2f})")
 
-    # 6. Average sentence length — LLMs tend toward 18-24 words
     if sentences:
         avg_len = sum(len(s.split()) for s in sentences) / len(sentences)
         if 17 <= avg_len <= 23 and len(sentences) > 4:
@@ -109,7 +95,6 @@ def detect_ai_generated(text: str) -> Tuple[bool, float, List[str]]:
 
     probability = min(score, 0.98)
     is_ai = probability >= 0.50
-
     if not reasons:
         reasons.append("No strong AI-generation indicators detected")
 
@@ -117,17 +102,15 @@ def detect_ai_generated(text: str) -> Tuple[bool, float, List[str]]:
 
 
 def detect_manipulation(text: str) -> List[str]:
-    """Detect propaganda and manipulation patterns"""
     found = []
     for pattern in MANIPULATION_PATTERNS:
-        matches = re.findall(pattern, text, re.IGNORECASE)
-        if matches:
-            found.append(f"Manipulation pattern: '{pattern.replace(r'\\b','').replace('(','').replace(')','')}'")
+        if re.search(pattern, text, re.IGNORECASE):
+            clean = re.sub(r'\\b|\(|\)', '', pattern)
+            found.append(f"Manipulation pattern detected: '{clean}'")
     return found
 
 
 def extract_topics(text: str) -> List[str]:
-    """Simple keyword extraction"""
     stop_words = {
         'the','a','an','is','are','was','were','be','been','have','has',
         'had','do','does','did','will','would','could','should','may','might',
@@ -140,27 +123,27 @@ def extract_topics(text: str) -> List[str]:
     return [word for word, _ in freq.most_common(8)]
 
 
+def detect_language(text: str) -> str:
+    try:
+        from langdetect import detect
+        return detect(text)
+    except Exception:
+        return "unknown"
+
+
 def analyze_text(text: str) -> Dict:
-    """Full text analysis — returns dict matching ContentAnalysis schema"""
     is_ai, ai_prob, ai_reasons = detect_ai_generated(text)
     manipulation = detect_manipulation(text)
     topics = extract_topics(text)
+    lang = detect_language(text)
 
-    # Language detection (simple heuristic)
-    try:
-        from langdetect import detect as langdetect_detect
-        lang = langdetect_detect(text)
-    except Exception:
-        lang = "unknown"
-
-    # Readability (Flesch-Kincaid approximation)
     sentences = re.split(r'[.!?]+', text)
     sentences = [s for s in sentences if s.strip()]
     words = text.split()
     syllables = sum(max(1, len(re.findall(r'[aeiouAEIOU]', w))) for w in words)
     if len(sentences) > 0 and len(words) > 0:
-        fk_score = 206.835 - 1.015 * (len(words)/len(sentences)) - 84.6 * (syllables/len(words))
-        readability = round(max(0, min(100, fk_score)), 1)
+        fk = 206.835 - 1.015*(len(words)/len(sentences)) - 84.6*(syllables/len(words))
+        readability = round(max(0, min(100, fk)), 1)
     else:
         readability = None
 
