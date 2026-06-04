@@ -9,6 +9,36 @@ import re
 router = APIRouter(prefix="/scan", tags=["scan"])
 
 
+async def _scan_ip_inline(ip: str) -> dict:
+    """Inline IP scan for use in /scan endpoint"""
+    from ..services.ip_analysis import full_ip_analysis
+    from ..services.scanner import get_threat_level
+    import uuid, time
+    start = time.time()
+    result = await full_ip_analysis(ip)
+    threat_level = get_threat_level(result["threat_score"])
+    return {
+        "scan_id": str(uuid.uuid4()),
+        "input": ip,
+        "scan_type": "ip",
+        "threat_score": result["threat_score"],
+        "threat_level": threat_level,
+        "entity_type": "BOT" if result["threat_score"] > 50 else "UNKNOWN",
+        "signals": [{"name": "ip_analysis", "score": result["threat_score"], "confidence": result["confidence"], "reasons": result["reasons"]}],
+        "summary": f"IP {ip}: {', '.join(result['reasons'][:2])}",
+        "domain_intel": None,
+        "content_analysis": None,
+        "network_graph": {
+            "nodes": [{"id": f"ip-{ip}", "label": ip, "type": "ip", "threat_score": result["threat_score"]}],
+            "edges": []
+        },
+        "recommendations": ["Avoid interacting with this IP" if result["threat_score"] > 50 else "Continue monitoring"],
+        "scanned_at": __import__("datetime").datetime.utcnow().isoformat(),
+        "scan_duration_ms": int((time.time() - start) * 1000),
+        "ip_intel": result,
+    }
+
+
 async def _scan_username_inline(username: str) -> dict:
     """Inline username scan for use in /scan endpoint"""
     import uuid, time
@@ -36,12 +66,12 @@ async def _scan_username_inline(username: str) -> dict:
 def detect_input_type(input_str: str) -> ScanType:
     """Auto-detect input type if not specified"""
     input_str = input_str.strip()
+    if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', input_str):
+        return ScanType.IP
     if re.match(r'^https?://', input_str):
         return ScanType.URL
     if re.match(r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', input_str):
         return ScanType.DOMAIN
-    if re.match(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$', input_str):
-        return ScanType.IP
     if '@' in input_str and '.' in input_str:
         return ScanType.EMAIL
     if len(input_str) > 100:
@@ -81,6 +111,10 @@ async def run_scan(request: ScanRequest, background_tasks: BackgroundTasks):
                 result = await scan_url(input_val, deep=request.deep_scan)
             elif detected == ScanType.DOMAIN:
                 result = await scan_domain(input_val)
+            elif detected == ScanType.IP:
+                from ..routers.ip import analyze_ip
+                from fastapi import Request as FastAPIRequest
+                result = await _scan_ip_inline(input_val)
             elif detected == ScanType.USERNAME:
                 result = await _scan_username_inline(input_val)
             else:
@@ -111,6 +145,8 @@ async def quick_scan(body: dict):
         result = await scan_url(input_val)
     elif detected == ScanType.DOMAIN:
         result = await scan_domain(input_val)
+    elif detected == ScanType.IP:
+        result = await _scan_ip_inline(input_val)
     else:
         result = await scan_text(input_val)
 
