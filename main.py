@@ -6,11 +6,12 @@ from app.routers.ip import router as ip_router
 from app.routers.username import router as username_router
 from app.routers.blockchain import router as blockchain_router
 from app.routers.alerts import router as alerts_router
+from app.routers.media import router as media_router
 
 app = FastAPI(
     title="ATIP — Agentic Threat Intelligence Platform",
     description="Detect bots, fake agents, and synthetic personas. Track coordinated campaigns.",
-    version="0.7.0",
+    version="0.8.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -29,12 +30,13 @@ app.include_router(ip_router)
 app.include_router(username_router)
 app.include_router(blockchain_router)
 app.include_router(alerts_router)
+app.include_router(media_router)
 
 @app.get("/")
 async def root():
     return {
         "name": "ATIP API",
-        "version": "0.7.0",
+        "version": "0.8.0",
         "status": "operational",
         "endpoints": {
             "scan": "POST /scan",
@@ -52,4 +54,4 @@ async def root():
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "version": "0.7.0"}
+    return {"status": "ok", "version": "0.8.0"}

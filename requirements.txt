@@ -13,3 +13,7 @@ lxml==5.2.2
 tldextract==3.4.4
 web3==6.15.1
 eth-account==0.11.0
+Pillow==10.3.0
+python-magic==0.4.27
+mutagen==1.47.0
+python-multipart==0.0.9
