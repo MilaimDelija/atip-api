@@ -1,4 +1,4 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from datetime import datetime
@@ -25,28 +25,15 @@ class ScanType(str, Enum):
     EMAIL = "email"
     IP = "ip"
 
-# --- Request Models ---
-
 class ScanRequest(BaseModel):
     input: str
     scan_type: ScanType
     deep_scan: bool = False
 
-class TextAnalysisRequest(BaseModel):
-    text: str
-    context: Optional[str] = None
-
-class AgentDetectionRequest(BaseModel):
-    content: str
-    content_type: str = "text"  # text, email, chat, api_log
-    metadata: Optional[Dict[str, Any]] = None
-
-# --- Signal Models ---
-
 class DetectionSignal(BaseModel):
     name: str
-    score: float  # 0-100
-    confidence: float  # 0-1
+    score: float
+    confidence: float
     reasons: List[str]
     raw_data: Optional[Dict[str, Any]] = None
 
@@ -66,8 +53,6 @@ class NetworkEdge(BaseModel):
 class NetworkGraph(BaseModel):
     nodes: List[NetworkNode]
     edges: List[NetworkEdge]
-
-# --- Result Models ---
 
 class DomainIntelligence(BaseModel):
     domain: str
@@ -103,16 +88,16 @@ class OpenSourceIntel(BaseModel):
 class ScanResult(BaseModel):
     scan_id: str
     input: str
-    scan_type: ScanType
+    scan_type: str
     threat_score: float
-    threat_level: ThreatLevel
-    entity_type: EntityType
-    signals: List[DetectionSignal]
+    threat_level: str
+    entity_type: str
+    signals: List[Dict[str, Any]]
     summary: str
-    domain_intel: Optional[DomainIntelligence] = None
-    content_analysis: Optional[ContentAnalysis] = None
-    osint: Optional[OpenSourceIntel] = None
-    network_graph: Optional[NetworkGraph] = None
+    domain_intel: Optional[Dict[str, Any]] = None
+    content_analysis: Optional[Dict[str, Any]] = None
+    osint: Optional[Dict[str, Any]] = None
+    network_graph: Optional[Dict[str, Any]] = None
     recommendations: List[str] = []
-    scanned_at: datetime = datetime.utcnow()
+    scanned_at: str = ""
     scan_duration_ms: Optional[int] = None
