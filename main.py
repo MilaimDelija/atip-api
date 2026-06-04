@@ -1,11 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers.scan import router as scan_router
+from app.routers.campaigns import router as campaigns_router
 
 app = FastAPI(
     title="ATIP — Agentic Threat Intelligence Platform",
-    description="Detect bots, fake agents, and synthetic personas via URL, domain, and text analysis.",
-    version="0.2.0",
+    description="Detect bots, fake agents, and synthetic personas. Track coordinated campaigns.",
+    version="0.3.0",
     docs_url="/docs",
     redoc_url="/redoc",
 )
@@ -19,20 +20,25 @@ app.add_middleware(
 )
 
 app.include_router(scan_router)
+app.include_router(campaigns_router)
 
 @app.get("/")
 async def root():
     return {
         "name": "ATIP API",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "status": "operational",
         "endpoints": {
             "scan": "POST /scan",
             "quick_scan": "POST /scan/quick",
+            "campaigns": "GET/POST /campaigns",
+            "campaign_detail": "GET /campaigns/{id}",
+            "add_entity": "POST /campaigns/{id}/entities",
+            "export_evidence": "POST /campaigns/{id}/export",
             "docs": "/docs",
         }
     }
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "0.3.0"}
