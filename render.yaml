@@ -9,4 +9,8 @@ services:
         sync: false
       - key: VIRUSTOTAL_API_KEY
         sync: false
+      - key: SHODAN_API_KEY
+        sync: false
+      - key: ABUSEIPDB_API_KEY
+        sync: false
     healthCheckPath: /health

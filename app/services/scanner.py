@@ -8,6 +8,7 @@ from .domain_intel import analyze_domain
 from .web_scraper import scrape_url, check_url_reputation
 from .network_graph import build_entity_graph
 from .virustotal import scan_domain_vt, scan_url_vt, scan_ip_vt, calculate_vt_threat_score
+from .ip_analysis import full_ip_analysis, calculate_ip_threat_score
 
 
 def calculate_threat_score(signals: list) -> float:
@@ -267,20 +268,30 @@ async def scan_domain(domain: str) -> Dict:
         "raw_data": {k: v for k, v in vt_result.items() if k != "error"},
     })
 
-    # IP reputation via VT
+    # Full IP analysis for domain IPs
     ip_signals = []
     for ip in domain_data.get("ip_addresses", [])[:2]:
-        ip_vt = await scan_ip_vt(ip)
-        if not ip_vt.get("error"):
-            ip_score, ip_conf, ip_reasons = calculate_vt_threat_score(ip_vt)
-            if ip_score > 0:
-                ip_signals.append({
-                    "name": "network",
-                    "score": ip_score,
-                    "confidence": ip_conf,
-                    "reasons": ip_reasons,
-                    "raw_data": ip_vt,
-                })
+        ip_result = await full_ip_analysis(ip)
+        ip_score = ip_result.get("threat_score", 0)
+        ip_conf = ip_result.get("confidence", 0.5)
+        ip_reasons = ip_result.get("reasons", [])
+        if ip_score > 0 or any("AbuseIPDB" in r or "Shodan" in r for r in ip_reasons):
+            ip_signals.append({
+                "name": "network",
+                "score": ip_score,
+                "confidence": ip_conf,
+                "reasons": [r for r in ip_reasons if "No significant" not in r][:3],
+                "raw_data": {
+                    "ip": ip,
+                    "country": ip_result.get("country"),
+                    "org": ip_result.get("org"),
+                    "open_ports": ip_result.get("open_ports", [])[:10],
+                    "is_proxy": ip_result.get("is_proxy"),
+                    "is_tor": ip_result.get("is_tor"),
+                    "vulns": ip_result.get("vulns", [])[:5],
+                    "tags": ip_result.get("tags", []),
+                },
+            })
     if ip_signals:
         signals.extend(ip_signals)
 
