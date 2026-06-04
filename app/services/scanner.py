@@ -7,16 +7,17 @@ from .text_analysis import analyze_text
 from .domain_intel import analyze_domain
 from .web_scraper import scrape_url, check_url_reputation
 from .network_graph import build_entity_graph
-from ..models.schemas import ScanType, ThreatLevel, EntityType
+from .virustotal import scan_domain_vt, scan_url_vt, scan_ip_vt, calculate_vt_threat_score
 
 
 def calculate_threat_score(signals: list) -> float:
     weights = {
-        "linguistic": 0.20,
-        "domain": 0.25,
-        "url_reputation": 0.20,
-        "content": 0.20,
-        "network": 0.15,
+        "linguistic": 0.15,
+        "domain": 0.20,
+        "url_reputation": 0.15,
+        "content": 0.15,
+        "network": 0.10,
+        "virustotal": 0.25,  # VT gets highest weight
     }
     total_score = 0.0
     total_weight = 0.0
@@ -38,16 +39,19 @@ def get_threat_level(score: float) -> str:
 
 
 def get_entity_type(signals: list, scan_type: str) -> str:
+    vt = next((s for s in signals if s["name"] == "virustotal"), None)
     linguistic = next((s for s in signals if s["name"] == "linguistic"), None)
     domain = next((s for s in signals if s["name"] == "domain"), None)
 
+    if vt and vt["score"] > 70:
+        return "BOT"
     if linguistic and linguistic["score"] > 70:
         return "AI_AGENT"
     if domain and domain["score"] > 60:
-        return "BOT"
-    if linguistic and linguistic["score"] > 40:
         return "SYNTHETIC_PERSONA"
-    return "UNKNOWN"
+    if any(s.get("score", 0) > 40 for s in signals):
+        return "UNKNOWN"
+    return "HUMAN"
 
 
 def generate_recommendations(signals: list, threat_level: str) -> list:
@@ -56,24 +60,29 @@ def generate_recommendations(signals: list, threat_level: str) -> list:
         recs.append("Do not share personal information with this entity")
         recs.append("Report to platform trust & safety team")
         recs.append("Document all interactions for potential legal action")
+
+    vt = next((s for s in signals if s["name"] == "virustotal"), None)
+    if vt and vt["score"] > 50:
+        recs.append("VirusTotal flagged this entity — avoid clicking any links")
+        recs.append("Report to abuse@virustotal.com and relevant registrar")
+
     if any(s["name"] == "domain" and s["score"] > 50 for s in signals):
         recs.append("Verify domain registration independently before proceeding")
-        recs.append("Check SSL certificate validity and issuer")
+
     if any(s["name"] == "linguistic" and s["score"] > 50 for s in signals):
-        recs.append("Content shows strong AI-generation markers — verify source")
-        recs.append("Cross-reference claims with established news sources")
+        recs.append("Content shows AI-generation markers — verify source independently")
+
     if not recs:
         recs.append("Continue monitoring — no immediate action required")
     return recs
 
 
 async def scan_url(url: str, deep: bool = False) -> Dict:
-    """Scan a URL — scrape, analyze content, check domain"""
     start = time.time()
     scan_id = str(uuid.uuid4())
     signals = []
 
-    # 1. URL reputation check
+    # 1. URL reputation
     url_rep = await check_url_reputation(url)
     url_score = url_rep.get("base_risk_score", 0)
     signals.append({
@@ -84,8 +93,10 @@ async def scan_url(url: str, deep: bool = False) -> Dict:
         "raw_data": url_rep,
     })
 
-    # 2. Domain intelligence
-    domain = url_rep.get("domain", "")
+    # 2. Domain intel
+    import tldextract
+    ext = tldextract.extract(url)
+    domain = f"{ext.domain}.{ext.suffix}" if ext.domain else ""
     domain_data = {}
     if domain:
         domain_data = await analyze_domain(domain)
@@ -99,31 +110,51 @@ async def scan_url(url: str, deep: bool = False) -> Dict:
             "raw_data": {k: v for k, v in domain_data.items() if k != "ip_reputations"},
         })
 
-    # 3. Content scraping + analysis
+    # 3. VirusTotal
+    vt_result = await scan_url_vt(url)
+    if not vt_result.get("error") or "submitted" in str(vt_result.get("error", "")):
+        vt_score, vt_conf, vt_reasons = calculate_vt_threat_score(vt_result)
+        signals.append({
+            "name": "virustotal",
+            "score": vt_score,
+            "confidence": vt_conf,
+            "reasons": vt_reasons,
+            "raw_data": {k: v for k, v in vt_result.items() if k != "error"},
+        })
+    elif domain:
+        # Fallback to domain VT scan
+        vt_result = await scan_domain_vt(domain)
+        vt_score, vt_conf, vt_reasons = calculate_vt_threat_score(vt_result)
+        signals.append({
+            "name": "virustotal",
+            "score": vt_score,
+            "confidence": vt_conf,
+            "reasons": vt_reasons,
+            "raw_data": {k: v for k, v in vt_result.items() if k != "error"},
+        })
+
+    # 4. Content analysis
     content_data = {}
     content_analysis = {}
-    if deep or True:  # Always scrape for URL scans
-        content_data = await scrape_url(url) or {}
-        if content_data.get("main_text"):
-            content_analysis = analyze_text(content_data["main_text"])
-            ling_score = content_analysis.get("ai_probability", 0) * 100
-            manip = content_analysis.get("manipulation_indicators", [])
-            ling_score = min(ling_score + len(manip) * 10, 100)
-            signals.append({
-                "name": "linguistic",
-                "score": round(ling_score, 1),
-                "confidence": 0.75,
-                "reasons": content_analysis.get("linguistic_anomalies", []) + manip or ["No linguistic anomalies"],
-                "raw_data": content_analysis,
-            })
+    content_data = await scrape_url(url) or {}
+    if content_data.get("main_text"):
+        content_analysis = analyze_text(content_data["main_text"])
+        ling_score = content_analysis.get("ai_probability", 0) * 100
+        manip = content_analysis.get("manipulation_indicators", [])
+        ling_score = min(ling_score + len(manip) * 10, 100)
+        signals.append({
+            "name": "linguistic",
+            "score": round(ling_score, 1),
+            "confidence": 0.75,
+            "reasons": content_analysis.get("linguistic_anomalies", []) + manip or ["No linguistic anomalies"],
+            "raw_data": content_analysis,
+        })
 
-    # 4. Network graph
+    # 5. Network graph
     graph_data = build_entity_graph(
         root_entity=domain or url,
         associated_domains=content_data.get("external_links", [])[:5],
         associated_ips=domain_data.get("ip_addresses", []),
-        platform_presence={},
-        linked_entities=[],
     )
 
     threat_score = calculate_threat_score(signals)
@@ -142,8 +173,8 @@ async def scan_url(url: str, deep: bool = False) -> Dict:
         "threat_level": threat_level,
         "entity_type": entity_type,
         "signals": signals,
-        "summary": f"Detected {len(all_reasons)} suspicious indicators. Classified as {entity_type}." if all_reasons
-                   else "No significant threats detected in this URL.",
+        "summary": f"Detected {len(all_reasons)} suspicious indicator(s). {threat_level} threat."
+                   if all_reasons else "No significant threats detected.",
         "domain_intel": domain_data or None,
         "content_analysis": content_analysis or None,
         "osint": {
@@ -163,7 +194,6 @@ async def scan_url(url: str, deep: bool = False) -> Dict:
 
 
 async def scan_text(text: str) -> Dict:
-    """Analyze text for AI generation, manipulation, threats"""
     start = time.time()
     scan_id = str(uuid.uuid4())
 
@@ -204,14 +234,21 @@ async def scan_text(text: str) -> Dict:
 
 
 async def scan_domain(domain: str) -> Dict:
-    """Full domain intelligence scan"""
     start = time.time()
     scan_id = str(uuid.uuid4())
 
-    domain_data = await analyze_domain(domain)
+    # Clean domain
+    domain = domain.replace("https://", "").replace("http://", "").split("/")[0].strip()
+
+    # Run domain intel + VT in parallel
+    import asyncio
+    domain_task = analyze_domain(domain)
+    vt_task = scan_domain_vt(domain)
+    domain_data, vt_result = await asyncio.gather(domain_task, vt_task)
+
+    # Domain signal
     flags = domain_data.get("suspicion_flags", [])
     dom_score = min(len(flags) * 20, 100)
-
     signals = [{
         "name": "domain",
         "score": dom_score,
@@ -220,13 +257,45 @@ async def scan_domain(domain: str) -> Dict:
         "raw_data": {k: v for k, v in domain_data.items() if k != "ip_reputations"},
     }]
 
+    # VT signal
+    vt_score, vt_conf, vt_reasons = calculate_vt_threat_score(vt_result)
+    signals.append({
+        "name": "virustotal",
+        "score": vt_score,
+        "confidence": vt_conf,
+        "reasons": vt_reasons,
+        "raw_data": {k: v for k, v in vt_result.items() if k != "error"},
+    })
+
+    # IP reputation via VT
+    ip_signals = []
+    for ip in domain_data.get("ip_addresses", [])[:2]:
+        ip_vt = await scan_ip_vt(ip)
+        if not ip_vt.get("error"):
+            ip_score, ip_conf, ip_reasons = calculate_vt_threat_score(ip_vt)
+            if ip_score > 0:
+                ip_signals.append({
+                    "name": "network",
+                    "score": ip_score,
+                    "confidence": ip_conf,
+                    "reasons": ip_reasons,
+                    "raw_data": ip_vt,
+                })
+    if ip_signals:
+        signals.extend(ip_signals)
+
     graph_data = build_entity_graph(
         root_entity=domain,
         associated_ips=domain_data.get("ip_addresses", []),
     )
 
-    threat_score = dom_score
+    threat_score = calculate_threat_score(signals)
     threat_level = get_threat_level(threat_score)
+
+    # Build summary with VT data
+    vt_summary = ""
+    if vt_result.get("total_engines", 0) > 0:
+        vt_summary = f" VirusTotal: {vt_result.get('malicious', 0)}/{vt_result.get('total_engines', 0)} engines flagged."
 
     return {
         "scan_id": scan_id,
@@ -236,7 +305,8 @@ async def scan_domain(domain: str) -> Dict:
         "threat_level": threat_level,
         "entity_type": "BOT" if threat_score > 50 else "UNKNOWN",
         "signals": signals,
-        "summary": f"{len(flags)} suspicious domain indicators found." if flags else "Domain appears legitimate.",
+        "summary": (f"{len(flags)} suspicious domain indicator(s) found.{vt_summary}"
+                    if flags else f"Domain analysis complete.{vt_summary}"),
         "domain_intel": domain_data,
         "content_analysis": None,
         "osint": {
