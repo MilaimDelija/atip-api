@@ -52,7 +52,9 @@ async def analyze_username(username: str):
             }],
             "summary": (
                 f"Username '@{username}' found on {scan_result['total_found']} out of "
-                f"{scan_result['total_checked']} platforms checked."
+                f"{scan_result['total_checked']} platforms. "
+                f"High confidence: {scan_result.get('high_confidence_count', 0)} | "
+                f"Note: some results are low confidence — verify manually."
             ),
             "username_intel": {
                 "username": username,
