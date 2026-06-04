@@ -13,4 +13,16 @@ services:
         sync: false
       - key: ABUSEIPDB_API_KEY
         sync: false
+      - key: BLOCKCHAIN_PRIVATE_KEY
+        sync: false
+      - key: BLOCKCHAIN_ADDRESS
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ALERT_EMAILS
+        sync: false
+      - key: ALERT_WEBHOOK_URL
+        sync: false
+      - key: ALERT_MIN_LEVEL
+        value: HIGH
     healthCheckPath: /health

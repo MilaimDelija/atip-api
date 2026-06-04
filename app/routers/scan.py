@@ -123,6 +123,15 @@ async def run_scan(request: ScanRequest, background_tasks: BackgroundTasks):
         # Save to DB in background
         background_tasks.add_task(save_scan_result, result)
 
+        # Trigger alert for HIGH/CRITICAL scans
+        import os
+        alert_emails = os.getenv("ALERT_EMAILS", "").split(",")
+        alert_emails = [e.strip() for e in alert_emails if e.strip()]
+        webhook_url = os.getenv("ALERT_WEBHOOK_URL")
+        if alert_emails and result.get("threat_level") in ("HIGH", "CRITICAL"):
+            from ..services.alerts import trigger_scan_alert
+            background_tasks.add_task(trigger_scan_alert, result, alert_emails, webhook_url)
+
         return result
 
     except Exception as e:
