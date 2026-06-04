@@ -124,6 +124,24 @@ async def add_entity(campaign_id: str, req: AddEntityRequest, background_tasks: 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    # Check for duplicate
+    try:
+        conn = await get_connection()
+        existing = await conn.fetchrow(
+            "SELECT id FROM campaign_entities WHERE campaign_id = $1 AND entity_input = $2",
+            campaign_id, req.entity_input.strip()
+        )
+        await conn.close()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Entity '{req.entity_input.strip()}' already exists in this campaign"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
     # Scan entity
     input_val = req.entity_input.strip()
     try:
