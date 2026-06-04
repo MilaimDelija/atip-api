@@ -10,6 +10,7 @@ from ..services.campaign_detector import (
     generate_evidence_hash, assess_campaign_threat_level
 )
 from ..services.evidence_packager import generate_evidence_package
+from ..services.blockchain import anchor_hash, compute_evidence_hash
 from ..services.scanner import scan_url, scan_text, scan_domain
 from ..utils.db import get_connection
 
