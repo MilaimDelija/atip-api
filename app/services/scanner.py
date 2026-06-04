@@ -9,6 +9,7 @@ from .web_scraper import scrape_url, check_url_reputation
 from .network_graph import build_entity_graph
 from .virustotal import scan_domain_vt, scan_url_vt, scan_ip_vt, calculate_vt_threat_score
 from .ip_analysis import full_ip_analysis, calculate_ip_threat_score
+from .username_scan import scan_username, analyze_username_threat
 
 
 def calculate_threat_score(signals: list) -> float:
